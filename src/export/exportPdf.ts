@@ -82,7 +82,7 @@ export async function exportStampedPdf({
 export function buildOutputPdfName(sourcePdfName: string | null): string {
   const safeName = sourcePdfName && sourcePdfName.trim().length > 0 ? sourcePdfName : "document.pdf";
   const baseName = safeName.replace(/\.pdf$/i, "");
-  return `${baseName}_stamped.pdf`;
+  return `${baseName}_edited.pdf`;
 }
 
 export function downloadPdf(bytes: Uint8Array, outputName: string): void {

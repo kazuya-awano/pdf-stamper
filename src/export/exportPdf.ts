@@ -5,7 +5,7 @@ import type { PdfViewport } from "../pdf/types";
 
 interface ExportPdfParams {
   pdfBytes: ArrayBuffer;
-  stampImage: StampImageState;
+  stampImage: StampImageState | null;
   stampsByPage: Map<number, StampPlacement[]>;
   viewportByPage: Map<number, PdfViewport>;
   originalTitle: string | null;
@@ -24,41 +24,47 @@ export async function exportStampedPdf({
     ignoreEncryption: false
   });
 
-  const embeddedImage =
-    stampImage.type === "png"
-      ? await pdfDoc.embedPng(stampImage.bytes)
-      : await pdfDoc.embedJpg(stampImage.bytes);
-
-  const pages = pdfDoc.getPages();
-  const dpr = window.devicePixelRatio || 1;
-
-  for (const [pageNumber, placements] of stampsByPage) {
-    const page = pages[pageNumber - 1];
-    const viewport = viewportByPage.get(pageNumber);
-
-    if (!page || !viewport) {
-      continue;
+  if (stampsByPage.size > 0) {
+    if (!stampImage) {
+      throw new Error("スタンプ画像が見つかりません。再選択してから保存してください。");
     }
 
-    const canvasPixelSize = {
-      width: viewport.width * dpr,
-      height: viewport.height * dpr
-    };
+    const embeddedImage =
+      stampImage.type === "png"
+        ? await pdfDoc.embedPng(stampImage.bytes)
+        : await pdfDoc.embedJpg(stampImage.bytes);
 
-    for (const placement of placements) {
-      const rectPdf = screenRectToPdfRect(
-        viewport,
-        placement.rectScreen,
-        canvasPixelSize,
-        dpr
-      );
+    const pages = pdfDoc.getPages();
+    const dpr = window.devicePixelRatio || 1;
 
-      page.drawImage(embeddedImage, {
-        x: rectPdf.x,
-        y: rectPdf.y,
-        width: rectPdf.width,
-        height: rectPdf.height
-      });
+    for (const [pageNumber, placements] of stampsByPage) {
+      const page = pages[pageNumber - 1];
+      const viewport = viewportByPage.get(pageNumber);
+
+      if (!page || !viewport) {
+        continue;
+      }
+
+      const canvasPixelSize = {
+        width: viewport.width * dpr,
+        height: viewport.height * dpr
+      };
+
+      for (const placement of placements) {
+        const rectPdf = screenRectToPdfRect(
+          viewport,
+          placement.rectScreen,
+          canvasPixelSize,
+          dpr
+        );
+
+        page.drawImage(embeddedImage, {
+          x: rectPdf.x,
+          y: rectPdf.y,
+          width: rectPdf.width,
+          height: rectPdf.height
+        });
+      }
     }
   }
 

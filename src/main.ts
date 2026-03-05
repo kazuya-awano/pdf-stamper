@@ -158,7 +158,8 @@ function syncControls(): void {
   if (!hasPdf) {
     inputOrderHint.textContent = "STEP 1: 先にPDFを選択してください。";
   } else if (!hasStamp) {
-    inputOrderHint.textContent = "STEP 2: 次にスタンプ画像を選択してください。";
+    inputOrderHint.textContent =
+      "STEP 2: 必要に応じてスタンプ画像を選択してください（タイトル変更のみでも保存できます）。";
   } else {
     inputOrderHint.textContent = "PDFとスタンプ画像の選択が完了しています。";
   }
@@ -415,13 +416,16 @@ async function savePdf(): Promise<void> {
     return;
   }
 
-  if (!state.stampImage) {
-    setStatus("スタンプ画像を選択してから保存してください。", "error");
+  const stampCount = countStamps(state.stampsByPage);
+  const isTitleEdited = state.documentMeta.editedTitle !== state.documentMeta.originalTitle;
+
+  if (stampCount > 0 && !state.stampImage) {
+    setStatus("スタンプ画像を再選択してから保存してください。", "error");
     return;
   }
 
-  if (countStamps(state.stampsByPage) === 0) {
-    setStatus("スタンプを1つ以上配置してから保存してください。", "error");
+  if (stampCount === 0 && !isTitleEdited) {
+    setStatus("タイトル変更またはスタンプ配置を行ってから保存してください。", "error");
     return;
   }
 

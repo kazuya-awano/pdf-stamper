@@ -8,6 +8,12 @@ import {
   type StampImageType,
   type StampPlacement
 } from "./app/state";
+import {
+  clearCachedStampImage,
+  type CachedStampImage,
+  loadCachedStampImage,
+  saveCachedStampImage
+} from "./app/stampCache";
 import { buildOutputPdfName, downloadPdf, exportStampedPdf } from "./export/exportPdf";
 import { PdfLoadError, loadPdfFromFile } from "./pdf/loader";
 import { renderPageToCanvas } from "./pdf/renderer";
@@ -23,52 +29,81 @@ if (!appRoot) {
 
 appRoot.innerHTML = `
   <div class="app-shell">
-    <header class="hero">
-      <p class="hero-kicker">Offline Workflow</p>
-      <h1>PDF Stamp Tool</h1>
-      <p class="hero-copy">PDFとスタンプ画像はブラウザ内だけで処理します。外部通信は行いません。</p>
+    <header class="app-header">
+      <div>
+        <p class="app-kicker">Local PDF Utility</p>
+        <h1>pdf-stamper</h1>
+      </div>
+      <p class="privacy-note">PDFと画像はブラウザ内だけで処理します。</p>
     </header>
 
-    <section class="toolbar" aria-label="操作バー">
-      <label id="stepPdfField" class="field step-field step-pdf">
-        <span class="step-label">STEP 1</span>
-        <span>PDFを選択</span>
-        <input id="pdfInput" type="file" accept="application/pdf" />
-      </label>
+    <main class="workspace">
+      <aside class="control-panel" aria-label="操作パネル">
+        <section class="panel-section upload-section">
+          <p class="section-label">Source</p>
+          <label id="stepPdfField" class="field step-field step-pdf">
+            <span class="step-label">1</span>
+            <span class="field-title">PDFを選択</span>
+            <input id="pdfInput" type="file" accept="application/pdf" />
+          </label>
+        </section>
 
-      <label id="stepStampField" class="field step-field step-stamp">
-        <span class="step-label">STEP 2</span>
-        <span>スタンプ画像を選択</span>
-        <input id="stampInput" type="file" accept="image/png,image/jpeg" />
-      </label>
+        <section class="panel-section upload-section">
+          <p class="section-label">Stamp</p>
+          <div id="stepStampField" class="field step-field step-stamp">
+            <span class="step-label">2</span>
+            <span class="field-title">スタンプ画像を選択</span>
+            <div class="stamp-choice-row">
+              <label class="choice-button">
+                <span>新しい画像を選択</span>
+                <input id="stampInput" class="file-input-hidden" type="file" accept="image/png,image/jpeg" />
+              </label>
+              <button id="useCachedStampButton" class="button button-secondary" type="button">前回の画像を使う</button>
+            </div>
+          </div>
+          <div class="cache-strip">
+            <p id="stampCacheStatus" class="cache-status" aria-live="polite">前回の画像を確認しています。</p>
+            <button id="clearStampCacheButton" class="icon-button" type="button" aria-label="キャッシュ画像を削除" title="キャッシュ画像を削除">×</button>
+          </div>
+          <p id="inputOrderHint" class="order-hint" aria-live="polite"></p>
+        </section>
 
-      <p id="inputOrderHint" class="order-hint" aria-live="polite"></p>
+        <section class="panel-section meta-section">
+          <p class="section-label">Metadata</p>
+          <label class="field title-field">
+            <span class="field-title">PDF Title</span>
+            <input id="titleInput" type="text" placeholder="PDF Title" autocomplete="off" />
+          </label>
+        </section>
 
-      <label class="field title-field">
-        <span>Title</span>
-        <input id="titleInput" type="text" placeholder="PDF Title" autocomplete="off" />
-      </label>
+        <section class="panel-section action-section">
+          <div class="buttons-row">
+            <button id="saveButton" class="button button-accent" type="button">保存</button>
+            <button id="deleteButton" class="button" type="button">スタンプを削除</button>
+          </div>
 
-      <div class="buttons-row">
-        <button id="saveButton" class="button button-accent" type="button">保存</button>
-        <button id="deleteButton" class="button" type="button">削除</button>
-      </div>
+          <div class="pager-row">
+            <button id="prevButton" class="button button-compact" type="button">前</button>
+            <p id="pageInfo" class="page-info" aria-live="polite">0 / 0</p>
+            <button id="nextButton" class="button button-compact" type="button">次</button>
+          </div>
+        </section>
+      </aside>
 
-      <div class="buttons-row pager-row">
-        <button id="prevButton" class="button" type="button">前</button>
-        <p id="pageInfo" class="page-info" aria-live="polite">0 / 0</p>
-        <button id="nextButton" class="button" type="button">次</button>
-      </div>
-    </section>
-
-    <p id="statusMessage" class="status" hidden aria-live="polite"></p>
-
-    <section id="viewerPanel" class="viewer-panel" aria-label="PDFビュー" hidden>
-      <div id="canvasStack" class="canvas-stack">
-        <canvas id="pdfCanvas"></canvas>
-        <div id="stampOverlay" class="stamp-overlay"></div>
-      </div>
-    </section>
+      <section class="document-stage" aria-label="PDFビュー">
+        <p id="statusMessage" class="status" hidden aria-live="polite"></p>
+        <div id="emptyState" class="empty-state">
+          <p class="empty-label">Ready</p>
+          <p>PDFを選択すると、ここにプレビューとスタンプ編集面を表示します。</p>
+        </div>
+        <div id="viewerPanel" class="viewer-panel" hidden>
+          <div id="canvasStack" class="canvas-stack">
+            <canvas id="pdfCanvas"></canvas>
+            <div id="stampOverlay" class="stamp-overlay"></div>
+          </div>
+        </div>
+      </section>
+    </main>
   </div>
 `;
 
@@ -84,6 +119,7 @@ const pdfInput = mustElement<HTMLInputElement>("#pdfInput");
 const stampInput = mustElement<HTMLInputElement>("#stampInput");
 const stepPdfField = mustElement<HTMLElement>("#stepPdfField");
 const stepStampField = mustElement<HTMLElement>("#stepStampField");
+const useCachedStampButton = mustElement<HTMLButtonElement>("#useCachedStampButton");
 const titleInput = mustElement<HTMLInputElement>("#titleInput");
 const saveButton = mustElement<HTMLButtonElement>("#saveButton");
 const deleteButton = mustElement<HTMLButtonElement>("#deleteButton");
@@ -92,6 +128,9 @@ const nextButton = mustElement<HTMLButtonElement>("#nextButton");
 const pageInfo = mustElement<HTMLParagraphElement>("#pageInfo");
 const statusMessage = mustElement<HTMLParagraphElement>("#statusMessage");
 const inputOrderHint = mustElement<HTMLParagraphElement>("#inputOrderHint");
+const stampCacheStatus = mustElement<HTMLParagraphElement>("#stampCacheStatus");
+const clearStampCacheButton = mustElement<HTMLButtonElement>("#clearStampCacheButton");
+const emptyState = mustElement<HTMLDivElement>("#emptyState");
 const viewerPanel = mustElement<HTMLElement>("#viewerPanel");
 const canvas = mustElement<HTMLCanvasElement>("#pdfCanvas");
 const overlay = mustElement<HTMLDivElement>("#stampOverlay");
@@ -114,6 +153,20 @@ const overlayController = new StampOverlayController(overlay, {
 });
 
 let renderTicket = 0;
+let cachedStampImage: CachedStampImage | null = null;
+
+const stampCacheReady = loadCachedStampImage()
+  .then((cached) => {
+    cachedStampImage = cached;
+  })
+  .catch(() => {
+    cachedStampImage = null;
+    setStatus("前回のスタンプ画像キャッシュを読み込めませんでした。", "error");
+  })
+  .finally(() => {
+    syncStampCacheUi();
+    syncControls();
+  });
 
 function setStatus(message: string | null, kind: "error" | "success" = "error"): void {
   if (!message) {
@@ -142,10 +195,13 @@ function syncControls(): void {
   const hasPdf = Boolean(state.pdfDoc);
   const hasStamp = Boolean(state.stampImage);
   const hasSelectedStamp = Boolean(state.selectedStampId);
+  const hasCurrentPageStamp = hasPdf && getStampsForPage(state, state.currentPage).length > 0;
 
   stampInput.disabled = !hasPdf;
+  useCachedStampButton.disabled = !hasPdf || !cachedStampImage;
   titleInput.disabled = !hasPdf;
   viewerPanel.hidden = !hasPdf;
+  emptyState.hidden = hasPdf;
 
   stepPdfField.classList.toggle("is-step-active", !hasPdf);
   stepPdfField.classList.toggle("is-step-done", hasPdf);
@@ -156,18 +212,39 @@ function syncControls(): void {
   stepStampField.classList.toggle("is-step-done", hasPdf && hasStamp);
 
   if (!hasPdf) {
-    inputOrderHint.textContent = "STEP 1: 先にPDFを選択してください。";
+    inputOrderHint.textContent = cachedStampImage
+      ? "PDFを選んだ後、新しい画像または前回の画像を選べます。"
+      : "先にPDFを選択してください。";
   } else if (!hasStamp) {
-    inputOrderHint.textContent =
-      "STEP 2: 必要に応じてスタンプ画像を選択してください（タイトル変更のみでも保存できます）。";
+    inputOrderHint.textContent = cachedStampImage
+      ? "新しい画像を選ぶか、前回の画像を呼び出してください。"
+      : "新しいスタンプ画像を選択してください（タイトル変更のみでも保存できます）。";
   } else {
-    inputOrderHint.textContent = "PDFとスタンプ画像の選択が完了しています。";
+    inputOrderHint.textContent = "スタンプ画像を配置済みです。ドラッグで移動、右下のハンドルで拡大縮小できます。";
   }
 
   prevButton.disabled = !hasPdf || state.currentPage <= 1;
   nextButton.disabled = !hasPdf || state.currentPage >= state.pageCount;
   saveButton.disabled = !hasPdf;
-  deleteButton.disabled = !hasSelectedStamp;
+  deleteButton.disabled = !hasSelectedStamp && !hasCurrentPageStamp;
+  clearStampCacheButton.disabled = !cachedStampImage;
+}
+
+function syncStampCacheUi(): void {
+  if (!cachedStampImage) {
+    stampCacheStatus.textContent = "前回の画像は未保存です。";
+    return;
+  }
+
+  const formatter = new Intl.DateTimeFormat("ja-JP", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit"
+  });
+  stampCacheStatus.textContent = `前回の画像: ${cachedStampImage.name} (${formatter.format(
+    cachedStampImage.updatedAt
+  )})`;
 }
 
 function clearStampImage(): void {
@@ -252,6 +329,53 @@ async function readImageDimensions(url: string): Promise<{ width: number; height
     };
     image.src = url;
   });
+}
+
+function createStampPreviewUrl(bytes: ArrayBuffer, type: StampImageType): string {
+  const mimeType = type === "png" ? "image/png" : "image/jpeg";
+  return URL.createObjectURL(new Blob([bytes], { type: mimeType }));
+}
+
+function setStampImageFromCache(cached: CachedStampImage): void {
+  const bytes = cached.bytes.slice(0);
+  const previewUrl = createStampPreviewUrl(bytes, cached.type);
+
+  clearStampImage();
+  state.stampImage = {
+    bytes,
+    type: cached.type,
+    naturalWidth: cached.naturalWidth,
+    naturalHeight: cached.naturalHeight,
+    previewUrl
+  };
+}
+
+async function useCachedStampForCurrentPdf(): Promise<void> {
+  await stampCacheReady;
+
+  if (!state.pdfDoc) {
+    setStatus("先にPDFを読み込んでください。", "error");
+    return;
+  }
+
+  if (!cachedStampImage) {
+    setStatus("前回のスタンプ画像は保存されていません。", "error");
+    return;
+  }
+
+  try {
+    setStampImageFromCache(cachedStampImage);
+    placeInitialStampOnCurrentPage();
+    setStatus("前回のスタンプ画像を配置しました。", "success");
+  } catch (error) {
+    clearStampImage();
+    setStatus(
+      error instanceof Error ? error.message : "前回のスタンプ画像を配置できませんでした。",
+      "error"
+    );
+  }
+
+  syncControls();
 }
 
 function placeInitialStampOnCurrentPage(): void {
@@ -359,10 +483,23 @@ async function handleStampSelection(file: File): Promise<void> {
     committedState = true;
 
     placeInitialStampOnCurrentPage();
-    setStatus(
-      "注記: 現在はスタンプ1つのみです。画像挿入中はページ移動・削除に制約があります。",
-      "success"
-    );
+    try {
+      cachedStampImage = {
+        bytes: bytes.slice(0),
+        type: imageType,
+        naturalWidth: dimensions.width,
+        naturalHeight: dimensions.height,
+        name: file.name || "stamp-image",
+        updatedAt: Date.now()
+      };
+      await saveCachedStampImage(cachedStampImage);
+      syncStampCacheUi();
+      setStatus("スタンプ画像を配置し、次回用にブラウザへ保存しました。", "success");
+    } catch {
+      cachedStampImage = null;
+      syncStampCacheUi();
+      setStatus("スタンプ画像は配置しましたが、ブラウザへの保存に失敗しました。", "error");
+    }
   } catch (error) {
     if (committedState) {
       clearStampImage();
@@ -393,11 +530,16 @@ async function changePage(nextPage: number): Promise<void> {
 }
 
 function deleteSelectedStamp(): void {
-  if (!state.selectedStampId) {
-    return;
+  let selectedId = state.selectedStampId;
+
+  if (!selectedId) {
+    const currentPageStamps = getStampsForPage(state, state.currentPage);
+    selectedId = currentPageStamps.length === 1 ? currentPageStamps[0].id : null;
   }
 
-  const selectedId = state.selectedStampId;
+  if (!selectedId) {
+    return;
+  }
 
   for (const [pageNumber, stamps] of state.stampsByPage.entries()) {
     const nextStamps = stamps.filter((stamp) => stamp.id !== selectedId);
@@ -487,6 +629,24 @@ nextButton.addEventListener("click", () => {
 
 deleteButton.addEventListener("click", () => {
   deleteSelectedStamp();
+});
+
+useCachedStampButton.addEventListener("click", () => {
+  void useCachedStampForCurrentPdf();
+});
+
+clearStampCacheButton.addEventListener("click", () => {
+  void (async () => {
+    try {
+      await clearCachedStampImage();
+      cachedStampImage = null;
+      syncStampCacheUi();
+      syncControls();
+      setStatus("前回のスタンプ画像キャッシュを削除しました。", "success");
+    } catch {
+      setStatus("スタンプ画像キャッシュを削除できませんでした。", "error");
+    }
+  })();
 });
 
 saveButton.addEventListener("click", () => {

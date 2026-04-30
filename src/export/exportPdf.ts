@@ -86,7 +86,9 @@ export function buildOutputPdfName(sourcePdfName: string | null): string {
 }
 
 export function downloadPdf(bytes: Uint8Array, outputName: string): void {
-  const blob = new Blob([bytes], { type: "application/pdf" });
+  const pdfBytes = new ArrayBuffer(bytes.byteLength);
+  new Uint8Array(pdfBytes).set(bytes);
+  const blob = new Blob([pdfBytes], { type: "application/pdf" });
   const objectUrl = URL.createObjectURL(blob);
 
   const anchor = document.createElement("a");

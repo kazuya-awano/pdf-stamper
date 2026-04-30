@@ -36,7 +36,7 @@ export async function loadPdfFromFile(file: File): Promise<LoadedPdf> {
     const loadingTask = getDocument({
       data: new Uint8Array(pdfBytes.slice(0))
     });
-    pdfDoc = await loadingTask.promise;
+    pdfDoc = (await loadingTask.promise) as unknown as PdfDocument;
   } catch (error) {
     if (isEncryptedError(error)) {
       throw new PdfLoadError("暗号化されたPDFは読み込めません。", "encrypted");
